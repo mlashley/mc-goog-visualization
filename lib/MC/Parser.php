@@ -96,6 +96,10 @@ class MC_Parser {
     public function number() {
         return new MC_Parser_Def_Regex('[+\-]?\d+(\.\d+)?', null, 'number');
     }
+
+    public function hexNumber() {
+        return new MC_Parser_Def_Regex('0x[0-9,a-f,A-F]+', null, 'number');
+    }
     
     /**
      * wrapper around MC_Parser_Def_OneOf that matches true and false, depending on case requirements

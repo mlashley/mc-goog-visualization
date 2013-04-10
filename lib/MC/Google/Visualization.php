@@ -169,6 +169,7 @@ class MC_Google_Visualization {
             $query = $this->parseQuery($query);
             $meta = $this->generateMetadata($query);
             $sql = $this->generateSQL($meta);
+            error_log($sql);
             $meta['req_id'] = $reqid;
             $meta['req_params'] = $params;
 
@@ -187,9 +188,9 @@ class MC_Google_Visualization {
         } catch(MC_Google_Visualization_Error $e) {
             echo $this->handleError($reqid, $e->getMessage(), $params['responseHandler'], $e->type, $e->summary);
         } catch(PDOException $e) {
-            echo $this->handleError($reqid, $e->getMessage(), $params['responseHandler'], 'invalid_query', 'Invalid Query');
+            echo $this->handleError($reqid, $e->getMessage(), $params['responseHandler'], 'invalid_query', 'Invalid Query - PDO exception');
         } catch(MC_Parser_ParseError $e) {
-            echo $this->handleError($reqid, $e->getMessage(), $params['responseHandler'], 'invalid_query', 'Invalid Query');
+            echo $this->handleError($reqid, $e->getMessage(), $params['responseHandler'], 'invalid_query', 'Invalid Query - Parse Error');
         } catch(Exception $e) {
             echo $this->handleError($reqid, $e->getMessage(), $params['responseHandler']);
         }
@@ -206,7 +207,7 @@ class MC_Google_Visualization {
     public function handleError($reqid, $detail_msg, $handler='google.visualization.Query.setResponse', $code='error', $summary_msg=null) {
         if($summary_msg === null) $summary_msg = $detail_msg;
         $handler = ($handler) ? $handler : 'google.visualization.Query.setResponse';
-        return $handler . '({version:"' . $this->version . '"reqId:"' . $reqid . '",status:"error",errors:[{reason:' . $this->jsonEncode($code) . ',message:' . $this->jsonEncode($summary_msg) . ',detailed_message:' . $this->jsonEncode($detail_msg) . '}]});';
+        return $handler . '({version:"' . $this->version . '",reqId:"' . $reqid . '",status:"error",errors:[{reason:' . $this->jsonEncode($code) . ',message:' . $this->jsonEncode($summary_msg) . ',detailed_message:' . $this->jsonEncode($detail_msg) . '}]});';
     }
 
     /**
@@ -901,6 +902,7 @@ class MC_Google_Visualization {
             
             switch($type) {
                 case 'text':
+                case 'binary':
                     $rtype = 'string';
                     break;
                 case 'number':
@@ -1023,7 +1025,8 @@ class MC_Google_Visualization {
                 case 'timestamp':
                     $time = strtotime($val);
                     list($year, $month, $day, $hour, $minute, $second) = explode('-', date('Y-m-d-H-i-s', $time));
-                    $val = 'new Date(' . (int) $year . ',' . ($month - 1) . ',' . (int) $day . ',' . (int) $hour . ',' . (int) $minute . ',' . (int) $second . ')';
+                    # MALC - Force us to consider the date as UTC...
+                    $val = 'new Date(Date.UTC(' . (int) $year . ',' . ($month - 1) . ',' . (int) $day . ',' . (int) $hour . ',' . (int) $minute . ',' . (int) $second . '))';
                     $formatted = date($format, $time);
                     break;
                 case 'time':
@@ -1031,6 +1034,11 @@ class MC_Google_Visualization {
                     list($hour, $minute, $second) = explode('-', date('H-i-s', $time));
                     $val = '[' . (int) $hour . ',' . (int) $minute . ',' . (int) $second . ',0]';
                     $formatted = date($format, $time);
+                    break;
+                case 'binary':
+                    $formatted = "0x" . array_shift(unpack('H*', $val));
+                    $val = "0x" . array_shift(unpack('H*', $val));
+                    $val = $this->jsonEncode((string) $val);
                     break;
                 default:
                     throw new MC_Google_Visualization_Error('Unknown field type "' . $type . '"');
@@ -1091,6 +1099,7 @@ class MC_Google_Visualization {
 
         $literal = $p->oneOf(
             $p->number()->name('number'),
+            $p->hexNumber()->name('number'),
             $p->quotedString()->name('string'),
             $p->boolean('lower')->name('boolean'),
             $p->set($p->keyword('date', true), $p->quotedString())->name('date'),
@@ -1107,7 +1116,8 @@ class MC_Google_Visualization {
         $select = $p->set($p->keyword('select', true), $p->oneOf($p->keyword('*'), $p->delimitedList($p->oneOf($function, $ident))))->name('select');
         $from = $p->set($p->keyword('from', true), $ident)->name('from');
 
-        $comparison = $p->oneOf($p->literal('<'), $p->literal('<='), $p->literal('>'), $p->literal('>='), $p->literal('='), $p->literal('!='), $p->literal('<>'))->name('operator');
+        # Malc - Added 'Like' 20130219
+        $comparison = $p->oneOf($p->literal('like'),$p->literal('<'), $p->literal('<='), $p->literal('>'), $p->literal('>='), $p->literal('='), $p->literal('!='), $p->literal('<>'))->name('operator');
 
         $expr = $p->recursive();
         $value = $p->oneOf($literal, $ident->name('where_field'));
